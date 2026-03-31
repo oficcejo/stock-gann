@@ -37,23 +37,31 @@ const metricItemTemplate=document.getElementById('metricItemTemplate');
 const overlayButtons=[...document.querySelectorAll('[data-overlay]')];
 const toolButtons=[...document.querySelectorAll('.tool-btn[data-tool]')];
 const OVERLAY_LABELS={trend:'趋势',fan:'扇形',time:'时间',level:'水平'};
+const FUTURE_BAR_OFFSET=18;
 let chart,candleSeries,volumeSeries,latestContext=null,currentAiReport=null;
 let overlaySeries=[],defaultsLoaded=false,resizeBound=false,drawMode='crosshair',drawings=[],pendingTrendStart=null,pendingTrendEnd=null,drawingRenderFrame=null;
 const overlayState={trend:true,fan:true,time:true,level:true};
 
 function createChart(){
   if(chart) chart.remove();
-  chart=LightweightCharts.createChart(chartContainer,{layout:{background:{color:'#07131f'},textColor:'#dbe7f3',fontFamily:'Barlow, Noto Sans SC, sans-serif'},grid:{vertLines:{color:'rgba(143, 169, 192, 0.08)'},horzLines:{color:'rgba(143, 169, 192, 0.08)'}},width:chartContainer.clientWidth,height:chartContainer.clientHeight,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},rightPriceScale:{borderColor:'rgba(143, 169, 192, 0.15)'},timeScale:{borderColor:'rgba(143, 169, 192, 0.15)',timeVisible:true}});
+  chart=LightweightCharts.createChart(chartContainer,{layout:{background:{color:'#07131f'},textColor:'#dbe7f3',fontFamily:'Barlow, Noto Sans SC, sans-serif'},grid:{vertLines:{color:'rgba(143, 169, 192, 0.08)'},horzLines:{color:'rgba(143, 169, 192, 0.08)'}},width:chartContainer.clientWidth,height:chartContainer.clientHeight,crosshair:{mode:LightweightCharts.CrosshairMode.Normal},rightPriceScale:{borderColor:'rgba(143, 169, 192, 0.15)'},timeScale:{borderColor:'rgba(143, 169, 192, 0.15)',timeVisible:true,rightOffset:FUTURE_BAR_OFFSET}});
   candleSeries=chart.addCandlestickSeries({upColor:'#1fd18a',downColor:'#ff5b6e',borderUpColor:'#1fd18a',borderDownColor:'#ff5b6e',wickUpColor:'#1fd18a',wickDownColor:'#ff5b6e',priceLineVisible:true});
   volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'',color:'rgba(0, 194, 168, 0.45)'});
   volumeSeries.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
+  ensureFutureSpace();
   if(!resizeBound){window.addEventListener('resize',handleResize);document.addEventListener('fullscreenchange',handleFullscreenChange);resizeBound=true;}
   resizeDrawingLayer();
+}
+
+function ensureFutureSpace(){
+  if(!chart) return;
+  chart.timeScale().applyOptions({rightOffset:FUTURE_BAR_OFFSET});
 }
 
 function handleResize(){
   if(!chart) return;
   chart.applyOptions({width:chartContainer.clientWidth,height:chartContainer.clientHeight});
+  ensureFutureSpace();
   resizeDrawingLayer();
 }
 
@@ -128,15 +136,15 @@ function getChartPointFromEvent(event){
   const rect=chartContainer.getBoundingClientRect();
   const x=event.clientX-rect.left;
   const y=event.clientY-rect.top;
-  const time=chart.timeScale().coordinateToTime(x);
+  const logical=chart.timeScale().coordinateToLogical(x);
   const price=candleSeries.coordinateToPrice(y);
-  if(time===null||price===null||Number.isNaN(price)) return null;
-  return {time,price};
+  if(logical===null||price===null||Number.isNaN(logical)||Number.isNaN(price)) return null;
+  return {logical,price};
 }
 
 function getScreenPoint(point){
   if(!point) return null;
-  const x=chart.timeScale().timeToCoordinate(point.time);
+  const x=chart.timeScale().logicalToCoordinate(point.logical);
   const y=candleSeries.priceToCoordinate(point.price);
   if(x===null||y===null||Number.isNaN(x)||Number.isNaN(y)) return null;
   return {x,y};
@@ -158,8 +166,8 @@ function renderDrawings(){
   const width=Math.max(chartContainer.clientWidth,1);const height=Math.max(chartContainer.clientHeight,1);drawingLayer.innerHTML='';
   drawings.forEach((drawing)=>{
     if(drawing.type==='trendline'){
-      const start=getScreenPoint({time:drawing.time1,price:drawing.price1});
-      const end=getScreenPoint({time:drawing.time2,price:drawing.price2});
+      const start=getScreenPoint({logical:drawing.logical1,price:drawing.price1});
+      const end=getScreenPoint({logical:drawing.logical2,price:drawing.price2});
       if(!start||!end) return;
       drawingLayer.appendChild(createSvgNode('line',{x1:start.x,y1:start.y,x2:end.x,y2:end.y,class:'drawing-line'}));
       drawingLayer.appendChild(createSvgNode('circle',{cx:start.x,cy:start.y,r:4,class:'drawing-point'}));
@@ -192,7 +200,7 @@ function handleDrawingClick(event){
   if(!point) return;
   if(drawMode==='trendline'){
     if(!pendingTrendStart){pendingTrendStart=point;pendingTrendEnd=point;updateDrawingHint();updateStatusByContext();renderDrawings();syncDrawingRenderLoop();return;}
-    drawings.push({type:'trendline',time1:pendingTrendStart.time,price1:pendingTrendStart.price,time2:point.time,price2:point.price});
+    drawings.push({type:'trendline',logical1:pendingTrendStart.logical,price1:pendingTrendStart.price,logical2:point.logical,price2:point.price});
     pendingTrendStart=null;pendingTrendEnd=null;
   }
   if(drawMode==='horizontal') drawings.push({type:'horizontal',price:point.price});
@@ -408,7 +416,7 @@ async function render(query){
   const candles=history.candles.map((item)=>({time:item.timestamp,open:item.open,high:item.high,low:item.low,close:item.close}));
   const volumes=history.candles.map((item)=>({time:item.timestamp,value:item.volume,color:item.close>=item.open?'rgba(31, 209, 138, 0.5)':'rgba(255, 91, 110, 0.5)'}));
   latestContext={query,history,report:analysis.report,security:history.security,market:history.market};
-  candleSeries.setData(candles);volumeSeries.setData(volumes);renderOverlays(history,analysis.report);chart.timeScale().fitContent();
+  candleSeries.setData(candles);volumeSeries.setData(volumes);renderOverlays(history,analysis.report);chart.timeScale().fitContent();ensureFutureSpace();
   securityName.textContent=history.security.name;
   securityMeta.textContent=`${history.security.code}.${history.market} · ${query.period==='daily'?'日线':query.period==='weekly'?'周线':'月线'}`;
   renderMetricList(priceLevelsEl,analysis.report.priceLevels.slice(0,8),(item)=>({name:item.label,value:item.value.toFixed(2)}));
@@ -510,4 +518,6 @@ window.gannApp={
   getCurrentSymbol:()=>latestContext?.history?.security?.code||symbolInput.value.trim(),
   getLatestContext:()=>latestContext
 };
+
+
 
