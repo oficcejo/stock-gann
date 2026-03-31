@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 
@@ -39,13 +39,36 @@ db.exec(`
   ON ai_reports(symbol, generated_at DESC);
 `);
 
+function ensureColumn(tableName, columnName, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
+  const exists = columns.some((column) => column.name === columnName);
+
+  if (!exists) {
+    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  }
+}
+
+ensureColumn('watchlist', 'drawings_json', "TEXT NOT NULL DEFAULT '[]'");
+
+function parseDrawingsJson(value) {
+  try {
+    const parsed = JSON.parse(value || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 function toWatchlistItem(row) {
+  const drawings = parseDrawingsJson(row.drawings_json);
+
   return {
     symbol: row.symbol,
     market: row.market,
     name: row.name,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    hasDrawings: drawings.length > 0
   };
 }
 
@@ -65,7 +88,7 @@ function toAiReportSummary(row) {
     temperature: row.temperature,
     generatedAt: row.generated_at,
     createdAt: row.created_at,
-    excerpt: excerpt || '无摘要'
+    excerpt: excerpt || '\u65e0\u6458\u8981'
   };
 }
 
@@ -91,6 +114,27 @@ function addWatchlistItem({ symbol, market, name }) {
 function getWatchlistItem(symbol) {
   const row = db.prepare('SELECT * FROM watchlist WHERE symbol = ?').get(symbol);
   return row ? toWatchlistItem(row) : null;
+}
+
+function getWatchlistDrawings(symbol) {
+  const row = db.prepare('SELECT drawings_json FROM watchlist WHERE symbol = ?').get(symbol);
+  return row ? parseDrawingsJson(row.drawings_json) : [];
+}
+
+function saveWatchlistDrawings(symbol, drawings) {
+  const item = getWatchlistItem(symbol);
+
+  if (!item) {
+    return false;
+  }
+
+  db.prepare(`
+    UPDATE watchlist
+    SET drawings_json = ?, updated_at = ?
+    WHERE symbol = ?
+  `).run(JSON.stringify(Array.isArray(drawings) ? drawings : []), new Date().toISOString(), symbol);
+
+  return true;
 }
 
 function removeWatchlistItem(symbol) {
@@ -171,6 +215,8 @@ module.exports = {
   listWatchlist,
   addWatchlistItem,
   getWatchlistItem,
+  getWatchlistDrawings,
+  saveWatchlistDrawings,
   removeWatchlistItem,
   saveAiReportRecord,
   listAiReportRecords,

@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const path = require('path');
 const { fetchAStockHistory, normalizeSymbol, resolveMarket } = require('./src/services/marketData');
 const { buildGannReport } = require('./src/services/gann');
@@ -7,6 +7,9 @@ const {
   dbPath,
   listWatchlist,
   addWatchlistItem,
+  getWatchlistItem,
+  getWatchlistDrawings,
+  saveWatchlistDrawings,
   removeWatchlistItem,
   saveAiReportRecord,
   listAiReportRecords,
@@ -84,6 +87,45 @@ app.post('/api/watchlist', async (req, res) => {
   }
 });
 
+app.get('/api/watchlist/:symbol/drawings', (req, res) => {
+  try {
+    const symbol = normalizeSymbol(req.params.symbol);
+    const item = getWatchlistItem(symbol);
+
+    if (!item) {
+      res.status(404).json({ ok: false, message: '\u81ea\u9009\u80a1\u4e0d\u5b58\u5728\u3002' });
+      return;
+    }
+
+    res.json({ ok: true, symbol, drawings: getWatchlistDrawings(symbol) });
+  } catch (error) {
+    res.status(400).json({ ok: false, message: error.message || 'Failed to load watchlist drawings.' });
+  }
+});
+
+app.put('/api/watchlist/:symbol/drawings', (req, res) => {
+  try {
+    const symbol = normalizeSymbol(req.params.symbol);
+    const drawings = req.body?.drawings;
+
+    if (!Array.isArray(drawings)) {
+      res.status(400).json({ ok: false, message: 'drawings must be an array.' });
+      return;
+    }
+
+    const saved = saveWatchlistDrawings(symbol, drawings);
+
+    if (!saved) {
+      res.status(404).json({ ok: false, message: '\u81ea\u9009\u80a1\u4e0d\u5b58\u5728\u3002' });
+      return;
+    }
+
+    res.json({ ok: true, symbol, drawings: getWatchlistDrawings(symbol) });
+  } catch (error) {
+    res.status(400).json({ ok: false, message: error.message || 'Failed to save watchlist drawings.' });
+  }
+});
+
 app.delete('/api/watchlist/:symbol', (req, res) => {
   try {
     const symbol = normalizeSymbol(req.params.symbol);
@@ -110,7 +152,7 @@ app.get('/api/ai-reports/:id', (req, res) => {
     const record = getAiReportRecord(req.params.id);
 
     if (!record) {
-      res.status(404).json({ ok: false, message: 'AI 分析记录不存在。' });
+      res.status(404).json({ ok: false, message: '\u0041\u0049 \u5206\u6790\u8bb0\u5f55\u4e0d\u5b58\u5728\u3002' });
       return;
     }
 

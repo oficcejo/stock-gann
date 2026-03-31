@@ -5,6 +5,8 @@ const aiHistoryListEl = document.getElementById('aiHistoryList');
 let watchlistItems = [];
 let aiHistoryItems = [];
 let watchlistBusy = false;
+let drawingSaveTimer = null;
+let drawingLoadToken = 0;
 
 async function readJsonResponse(response) {
   const text = await response.text();
@@ -17,6 +19,18 @@ async function readJsonResponse(response) {
 
 function getCurrentSymbol() {
   return window.gannApp?.getCurrentSymbol?.() || '';
+}
+
+function isWatchlistSymbol(symbol) {
+  return watchlistItems.some((item) => item.symbol === symbol);
+}
+
+function getCurrentDrawings() {
+  return window.gannApp?.getDrawings?.() || [];
+}
+
+function restoreDrawings(drawings) {
+  window.gannApp?.restoreDrawings?.(drawings || []);
 }
 
 function setToggleWatchlistText() {
@@ -108,6 +122,60 @@ async function loadAiHistory(symbol = getCurrentSymbol()) {
   renderAiHistory();
 }
 
+async function loadWatchlistDrawings(symbol = getCurrentSymbol()) {
+  const token = ++drawingLoadToken;
+
+  if (!symbol || !isWatchlistSymbol(symbol)) {
+    if (symbol === getCurrentSymbol()) {
+      restoreDrawings([]);
+    }
+    return;
+  }
+
+  const response = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}/drawings`);
+  const payload = await readJsonResponse(response);
+
+  if (!payload.ok) {
+    throw new Error(payload.message || '\u52a0\u8f7d\u753b\u7ebf\u5931\u8d25\u3002');
+  }
+
+  if (token !== drawingLoadToken || symbol !== getCurrentSymbol()) {
+    return;
+  }
+
+  restoreDrawings(payload.drawings || []);
+}
+
+async function saveWatchlistDrawings(symbol, drawings) {
+  if (!symbol || !isWatchlistSymbol(symbol)) {
+    return;
+  }
+
+  const response = await fetch(`/api/watchlist/${encodeURIComponent(symbol)}/drawings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ drawings })
+  });
+  const payload = await readJsonResponse(response);
+
+  if (!payload.ok) {
+    throw new Error(payload.message || '保存画线失败。');
+  }
+}
+
+function scheduleSaveWatchlistDrawings(symbol, drawings) {
+  if (drawingSaveTimer) {
+    clearTimeout(drawingSaveTimer);
+  }
+
+  drawingSaveTimer = setTimeout(() => {
+    saveWatchlistDrawings(symbol, drawings).catch((error) => {
+      console.error(error);
+    });
+    drawingSaveTimer = null;
+  }, 160);
+}
+
 async function addToWatchlist(symbol) {
   const response = await fetch('/api/watchlist', {
     method: 'POST',
@@ -150,6 +218,10 @@ async function toggleCurrentWatchlist() {
     }
 
     await loadWatchlist();
+
+    if (!exists) {
+      await saveWatchlistDrawings(symbol, getCurrentDrawings());
+    }
   } catch (error) {
     toggleWatchlistBtn.textContent = error.message;
   } finally {
@@ -215,6 +287,10 @@ function attachPersistenceEvents() {
     loadAiHistory(event.detail?.symbol).catch((error) => {
       console.error(error);
     });
+    loadWatchlistDrawings(event.detail?.symbol).catch((error) => {
+      console.error(error);
+      if ((event.detail?.symbol || '') === getCurrentSymbol()) restoreDrawings([]);
+    });
   });
 
   document.addEventListener('gann:ai-report-saved', (event) => {
@@ -222,12 +298,18 @@ function attachPersistenceEvents() {
       console.error(error);
     });
   });
+
+  document.addEventListener('gann:drawings-changed', (event) => {
+    const symbol = event.detail?.symbol || getCurrentSymbol();
+    scheduleSaveWatchlistDrawings(symbol, event.detail?.drawings || []);
+  });
 }
 
 async function bootPersistence() {
   attachPersistenceEvents();
   await loadWatchlist();
   await loadAiHistory();
+  await loadWatchlistDrawings();
   setToggleWatchlistText();
 }
 
