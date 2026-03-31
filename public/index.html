@@ -19,10 +19,10 @@
     <div class="app-shell">
       <aside class="left-tools">
         <button class="tool-btn active" data-tool="crosshair" aria-pressed="true">十字</button>
-        <button class="tool-btn active" data-tool="trend" aria-pressed="true">趋势</button>
-        <button class="tool-btn active" data-tool="fan" aria-pressed="true">扇形</button>
-        <button class="tool-btn active" data-tool="time" aria-pressed="true">时间</button>
-        <button class="tool-btn active" data-tool="level" aria-pressed="true">水平</button>
+        <button class="tool-btn" data-tool="trendline" aria-pressed="false">趋势线</button>
+        <button class="tool-btn" data-tool="horizontal" aria-pressed="false">水平线</button>
+        <button class="tool-btn" data-tool="undo" aria-pressed="false">撤销</button>
+        <button class="tool-btn" data-tool="clear" aria-pressed="false">清空</button>
       </aside>
 
       <main class="workspace">
@@ -58,26 +58,46 @@
             </form>
 
             <div class="header-actions">
+              <a
+                class="repo-link"
+                href="https://github.com/oficcejo/stock-gann"
+                target="_blank"
+                rel="noreferrer"
+                aria-label="打开 GitHub 仓库"
+                title="GitHub 仓库"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.78-.24.78-.54 0-.27-.01-.98-.02-1.92-3.2.69-3.88-1.54-3.88-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.71 1.25 3.37.96.1-.75.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.47.11-3.06 0 0 .96-.31 3.14 1.17a10.9 10.9 0 0 1 5.72 0c2.18-1.48 3.14-1.17 3.14-1.17.62 1.59.23 2.77.11 3.06.73.8 1.18 1.82 1.18 3.07 0 4.41-2.69 5.39-5.25 5.67.41.35.78 1.04.78 2.1 0 1.52-.01 2.75-.01 3.12 0 .3.21.65.79.54A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
+                  />
+                </svg>
+                <span>GitHub</span>
+              </a>
               <button id="openAiModalBtn" type="button" class="ghost-btn">AI 分析报告</button>
             </div>
           </div>
         </header>
 
-        <section class="chart-frame">
+        <section id="chartFrame" class="chart-frame">
           <div class="chart-toolbar">
             <div class="toolbar-title">
               <span id="securityName">贵州茅台</span>
               <span id="securityMeta">600519.SH · 日线</span>
             </div>
             <div class="toolbar-actions">
-              <span class="pill" data-pill="trend">Trend</span>
-              <span class="pill" data-pill="fan">Gann Fan</span>
-              <span class="pill" data-pill="time">Time Cycles</span>
-              <span class="pill" data-pill="level">Price Levels</span>
+              <button type="button" class="pill is-active" data-overlay="trend">Trend</button>
+              <button type="button" class="pill is-active" data-overlay="fan">Gann Fan</button>
+              <button type="button" class="pill is-active" data-overlay="time">Time Cycles</button>
+              <button type="button" class="pill is-active" data-overlay="level">Price Levels</button>
+              <button id="toggleFullscreenBtn" type="button" class="ghost-btn toolbar-btn">全屏图表</button>
             </div>
           </div>
 
-          <div id="chart" class="chart-canvas"></div>
+          <div id="chart" class="chart-canvas">
+            <svg id="drawingLayer" class="drawing-layer" aria-hidden="true"></svg>
+            <div id="drawingHint" class="drawing-hint">十字模式：可拖动缩放图表。选择“趋势线”或“水平线”后可在图上标注。</div>
+          </div>
         </section>
       </main>
 

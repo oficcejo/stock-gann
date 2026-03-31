@@ -11,7 +11,6 @@
   --danger: #ff5b6e;
   --bull: #1fd18a;
   --bear: #ff5b6e;
-  --glow: rgba(0, 194, 168, 0.25);
 }
 
 * {
@@ -41,7 +40,8 @@ body.modal-open {
 button,
 input,
 select,
-textarea {
+textarea,
+a {
   font: inherit;
 }
 
@@ -74,20 +74,25 @@ textarea {
 
 .tool-btn,
 .icon-btn,
-.ghost-btn {
+.ghost-btn,
+.repo-link {
   border: 1px solid transparent;
   border-radius: 16px;
-  padding: 14px 10px;
   color: var(--text-soft);
   background: rgba(255, 255, 255, 0.02);
   cursor: pointer;
   transition: 180ms ease;
 }
 
-.tool-btn:hover,
-.tool-btn.active,
+.tool-btn {
+  padding: 14px 10px;
+}
+
 .icon-btn:hover,
-.ghost-btn:hover {
+.ghost-btn:hover,
+.repo-link:hover,
+.tool-btn:hover,
+.tool-btn.active {
   color: var(--text);
   border-color: rgba(0, 194, 168, 0.3);
   background: rgba(0, 194, 168, 0.12);
@@ -189,6 +194,23 @@ textarea {
   padding-inline: 18px;
 }
 
+.toolbar-btn {
+  white-space: nowrap;
+}
+
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  text-decoration: none;
+}
+
+.repo-link svg {
+  width: 18px;
+  height: 18px;
+}
+
 .primary-btn:disabled,
 .ghost-btn:disabled {
   opacity: 0.6;
@@ -199,6 +221,8 @@ textarea {
 .hero-actions {
   display: flex;
   gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .chart-frame {
@@ -208,6 +232,18 @@ textarea {
   overflow: hidden;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(8, 20, 32, 0.92), rgba(7, 19, 30, 0.98));
+}
+
+.chart-frame:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+  background: linear-gradient(180deg, rgba(5, 15, 24, 0.98), rgba(7, 19, 30, 1));
+}
+
+.chart-frame:fullscreen .chart-canvas {
+  min-height: 100%;
 }
 
 .chart-toolbar {
@@ -240,6 +276,7 @@ textarea {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .pill {
@@ -557,5 +594,85 @@ textarea {
   .modal-body {
     max-height: calc(100vh - 120px);
     overflow: auto;
+  }
+}
+.pill {
+  appearance: none;
+  cursor: pointer;
+  color: var(--text-soft);
+}
+
+.pill:hover {
+  color: var(--text);
+  border-color: rgba(0, 194, 168, 0.28);
+  background: rgba(0, 194, 168, 0.08);
+}
+
+.pill.is-active {
+  color: var(--text);
+  border-color: rgba(0, 194, 168, 0.34);
+  background: linear-gradient(135deg, rgba(0, 194, 168, 0.18), rgba(28, 180, 216, 0.14));
+  box-shadow: inset 0 0 0 1px rgba(0, 194, 168, 0.08), 0 12px 28px rgba(0, 194, 168, 0.08);
+}
+
+.pill:not(.is-active) {
+  opacity: 0.58;
+}
+
+.drawing-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  pointer-events: none;
+  user-select: none;
+}
+
+.drawing-layer.is-interactive {
+  cursor: crosshair;
+}
+
+.drawing-line {
+  stroke: #7fe7c4;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.drawing-line-horizontal {
+  stroke: #ffb84d;
+  stroke-dasharray: 8 6;
+}
+
+.drawing-point {
+  fill: #16b9ff;
+  stroke: rgba(237, 244, 251, 0.9);
+  stroke-width: 1.5;
+}
+
+.drawing-hint {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  z-index: 4;
+  max-width: min(520px, calc(100% - 36px));
+  padding: 10px 14px;
+  border: 1px solid rgba(154, 184, 211, 0.16);
+  border-radius: 14px;
+  background: rgba(4, 12, 19, 0.72);
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+@media (max-width: 960px) {
+  .drawing-hint {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
   }
 }
