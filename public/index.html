@@ -74,6 +74,7 @@
                 </svg>
                 <span>GitHub</span>
               </a>
+              <button id="toggleWatchlistBtn" type="button" class="ghost-btn">加入自选</button>
               <button id="openAiModalBtn" type="button" class="ghost-btn">AI 分析报告</button>
             </div>
           </div>
@@ -124,6 +125,11 @@
         </section>
 
         <section class="panel-card compact-card">
+          <div class="panel-label">自选股</div>
+          <div id="watchlistList" class="action-list empty-state">暂无自选股。</div>
+        </section>
+
+        <section class="panel-card compact-card">
           <div class="panel-label">看图方法</div>
           <div id="guideList" class="summary-list"></div>
         </section>
@@ -136,6 +142,11 @@
         <section class="panel-card compact-card">
           <div class="panel-label">时间窗口</div>
           <div id="timeCycles" class="metric-list"></div>
+        </section>
+
+        <section class="panel-card compact-card wide-card">
+          <div class="panel-label">AI 分析记录</div>
+          <div id="aiHistoryList" class="action-list empty-state">暂无 AI 分析记录。</div>
         </section>
 
         <section class="panel-card compact-card wide-card">
@@ -225,6 +236,6 @@
     </template>
 
     <script src="/app.js"></script>
+    <script src="/persistence.js"></script>
   </body>
 </html>
-

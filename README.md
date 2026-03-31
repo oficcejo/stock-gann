@@ -11,6 +11,9 @@
 - 江恩时间窗口（7/9/21/30/45/60/90/120/144/180）
 - 仿 TradingView 风格图表界面
 - OpenAI 兼容 LLM 配置与 AI 报告输出
+- SQLite 本地持久化
+- 自选股管理
+- AI 分析记录保存与回看
 
 ## 启动
 
@@ -35,6 +38,7 @@ OPENAI_SYSTEM_PROMPT=你是资深A股研究员...
 - 页面右侧 AI 配置会优先读取浏览器本地保存的参数。
 - 如果本地未保存，会读取服务端环境变量作为默认值。
 - 页面输入的 API Key 仅保存在浏览器本地，不会写回服务端文件。
+- 本地数据库默认写入 `data/gann-app.sqlite`。
 
 ## 接口
 
@@ -42,6 +46,11 @@ OPENAI_SYSTEM_PROMPT=你是资深A股研究员...
 - `GET /api/analyze/:symbol`
 - `GET /api/llm/defaults`
 - `POST /api/ai-report`
+- `GET /api/watchlist`
+- `POST /api/watchlist`
+- `DELETE /api/watchlist/:symbol`
+- `GET /api/ai-reports`
+- `GET /api/ai-reports/:id`
 
 `POST /api/ai-report` 请求体示例：
 

@@ -291,12 +291,13 @@ function setAiReportMeta(text){aiMetaEl.textContent=text;}
 function resetAiReportState(message='配置 OpenAI 兼容接口后，点击“生成 AI 报告”。'){currentAiReport=null;aiReportTitleEl.textContent='AI 江恩分析报告';aiReportSubtitleEl.textContent=message;aiReportContentEl.textContent=message;setAiReportMeta('未生成');exportAiPdfBtn.disabled=true;}
 
 function renderAiReport(ai){
-  currentAiReport=ai;
+  currentAiReport={...ai};
   const generatedLabel=new Date(ai.generatedAt).toLocaleString('zh-CN');
-  aiReportTitleEl.textContent=`${latestContext?.history?.security?.name||'标的'} AI 江恩分析报告`;
-  aiReportSubtitleEl.textContent=`${ai.model} · ${generatedLabel}`;
+  const reportName=ai.securityName||ai.name||latestContext?.history?.security?.name||'\u6807\u7684';
+  aiReportTitleEl.textContent=`${reportName} AI \u6c5f\u6069\u5206\u6790\u62a5\u544a`;
+  aiReportSubtitleEl.textContent=`${ai.model} | ${generatedLabel}`;
   aiReportContentEl.textContent=ai.content;
-  setAiReportMeta(`${ai.model} · ${generatedLabel}`);
+  setAiReportMeta(`${ai.model} | ${generatedLabel}`);
   exportAiPdfBtn.disabled=false;
 }
 
@@ -312,9 +313,9 @@ function createMetaLine(label,value){
 }
 
 function buildPdfExportStage(){
-  const query=latestContext?.query||getCurrentQuery();
-  const security=latestContext?.history?.security||{code:query.symbol,name:query.symbol};
-  const market=latestContext?.history?.market||'--';
+  const query=currentAiReport?.symbol?{symbol:currentAiReport.symbol,period:currentAiReport.period||getCurrentQuery().period,adjusted:currentAiReport.adjusted||getCurrentQuery().adjusted}:latestContext?.query||getCurrentQuery();
+  const security=currentAiReport?.symbol?{code:currentAiReport.symbol,name:currentAiReport.securityName||currentAiReport.name||query.symbol}:latestContext?.history?.security||{code:query.symbol,name:query.symbol};
+  const market=currentAiReport?.market||latestContext?.history?.market||'--';
   const generatedAt=currentAiReport?.generatedAt?new Date(currentAiReport.generatedAt).toLocaleString('zh-CN'):new Date().toLocaleString('zh-CN');
   const stage=document.createElement('div');
   stage.style.position='fixed';stage.style.left='-20000px';stage.style.top='0';stage.style.width='1122px';stage.style.background='#07131f';stage.style.color='#edf4fb';stage.style.fontFamily='"Noto Sans SC", "Microsoft YaHei", sans-serif';stage.style.padding='0';stage.style.zIndex='-1';
@@ -412,7 +413,7 @@ async function render(query){
   securityMeta.textContent=`${history.security.code}.${history.market} · ${query.period==='daily'?'日线':query.period==='weekly'?'周线':'月线'}`;
   renderMetricList(priceLevelsEl,analysis.report.priceLevels.slice(0,8),(item)=>({name:item.label,value:item.value.toFixed(2)}));
   renderMetricList(timeCyclesEl,analysis.report.timeCycles,(item)=>({name:`${item.cycle}周期`,value:`${item.date} / ${item.close}`}));
-  renderSummary(analysis.report.summary);setForecast(analysis.report);renderGuide(history,analysis.report);syncOverlayButtons();syncToolButtons();updateDrawingHint();resizeDrawingLayer();updateFullscreenButton();
+  renderSummary(analysis.report.summary);setForecast(analysis.report);renderGuide(history,analysis.report);syncOverlayButtons();syncToolButtons();updateDrawingHint();resizeDrawingLayer();updateFullscreenButton();document.dispatchEvent(new CustomEvent('gann:context-updated',{detail:{symbol:history.security.code,market:history.market,name:history.security.name,period:query.period,adjusted:query.adjusted}}));
 }
 
 async function generateAiReport(){
@@ -425,7 +426,7 @@ async function generateAiReport(){
     const response=await fetch('/api/ai-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...query,llm})});
     const payload=await readJsonResponse(response);
     if(!payload.ok) throw new Error(payload.message||'生成 AI 报告失败。');
-    renderAiReport(payload.ai);statusText.textContent='AI 报告已生成，可结合图表与价格位交叉验证。';
+    renderAiReport(payload.ai);statusText.textContent='AI 报告已生成，可结合图表与价格位交叉验证。';document.dispatchEvent(new CustomEvent('gann:ai-report-saved',{detail:{symbol:payload.ai.symbol||query.symbol,id:payload.ai.id||null}}));
   }catch(error){
     currentAiReport=null;aiReportSubtitleEl.textContent='生成失败';aiReportContentEl.textContent=error.message;setAiReportMeta('生成失败');statusText.textContent='AI 报告生成失败，请检查 Base URL、Model、API Key 或稍后重试。';
   }finally{generateAiReportBtn.disabled=false;generateAiReportBtn.textContent='生成 AI 报告';}
@@ -438,7 +439,7 @@ async function exportAiReportPdf(){
     exportStage=buildPdfExportStage();
     const canvas=await html2canvas(exportStage,{backgroundColor:'#07131f',scale:2,useCORS:true,width:exportStage.scrollWidth,height:exportStage.scrollHeight,windowWidth:exportStage.scrollWidth,windowHeight:exportStage.scrollHeight});
     const pdf=canvasToPagedPdf(canvas);
-    const fileSymbol=latestContext?.history?.security?.code||'report';
+    const fileSymbol=currentAiReport?.symbol||latestContext?.history?.security?.code||'report';
     pdf.save(`${fileSymbol}-gann-ai-report.pdf`);
     statusText.textContent='AI 报告已导出为完整 PDF。';
   }catch(error){statusText.textContent=`PDF 导出失败：${error.message}`;}finally{
@@ -482,4 +483,31 @@ boot().catch((error)=>{trendBias.textContent='加载失败';trendBias.className=
 
 
 
+
+
+function showStoredAiReport(record){
+  renderAiReport({
+    id: record.id,
+    provider: record.provider,
+    model: record.model,
+    temperature: record.temperature,
+    content: record.content,
+    generatedAt: record.generatedAt,
+    symbol: record.symbol,
+    market: record.market,
+    securityName: record.name,
+    period: record.period,
+    adjusted: record.adjusted
+  });
+  openAiModal();
+}
+
+window.gannApp={
+  openAiModal,
+  closeAiModal,
+  showStoredAiReport,
+  loadSymbol:async(symbol)=>{symbolInput.value=String(symbol||'').trim();await render(getCurrentQuery());},
+  getCurrentSymbol:()=>latestContext?.history?.security?.code||symbolInput.value.trim(),
+  getLatestContext:()=>latestContext
+};
 
