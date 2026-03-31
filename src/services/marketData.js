@@ -10,6 +10,15 @@ const ADJUST_MAP = {
   backward: '2'
 };
 
+const TDX_PERIOD_MAP = {
+  daily: 'day',
+  weekly: 'week',
+  monthly: 'month'
+};
+
+const TDX_BASE_URL = 'http://43.138.33.77:8080';
+const TDX_PRICE_SCALE = 1000;
+
 function normalizeSymbol(input) {
   const symbol = String(input || '').trim().replace(/\D/g, '');
 
@@ -28,7 +37,15 @@ function toSecId(symbol) {
   return `${resolveMarket(symbol) === 'SH' ? '1' : '0'}.${symbol}`;
 }
 
-function parseKline(row) {
+function normalizePeriod(period) {
+  return Object.keys(PERIOD_MAP).find((key) => key === period) || 'daily';
+}
+
+function normalizeAdjusted(adjusted) {
+  return Object.keys(ADJUST_MAP).find((key) => key === adjusted) || 'forward';
+}
+
+function parseEastMoneyKline(row) {
   const [date, open, close, high, low, volume, amount, amplitude, changePercent, changeAmount, turnoverRate] = row.split(',');
 
   return {
@@ -47,7 +64,62 @@ function parseKline(row) {
   };
 }
 
-async function fetchAStockHistory(symbol, options = {}) {
+function buildCandleFilter(item) {
+  return (
+    Number.isFinite(item.open) &&
+    Number.isFinite(item.high) &&
+    Number.isFinite(item.low) &&
+    Number.isFinite(item.close) &&
+    item.open > 0 &&
+    item.high > 0 &&
+    item.low > 0 &&
+    item.close > 0
+  );
+}
+
+function parseTdxTime(time) {
+  const normalized = String(time || '').replace('Z', '+08:00');
+  const date = new Date(normalized);
+  const timestamp = Math.floor(date.getTime() / 1000);
+
+  return {
+    date: Number.isFinite(timestamp) ? date.toISOString().slice(0, 10) : '',
+    timestamp
+  };
+}
+
+function toScaledPrice(value) {
+  return Number(value) / TDX_PRICE_SCALE;
+}
+
+function parseTdxKline(item) {
+  const { date, timestamp } = parseTdxTime(item.Time);
+  const open = toScaledPrice(item.Open);
+  const close = toScaledPrice(item.Close);
+  const high = toScaledPrice(item.High);
+  const low = toScaledPrice(item.Low);
+  const last = toScaledPrice(item.Last);
+  const changeAmount = Number.isFinite(last) && last !== 0 ? close - last : 0;
+  const changePercent = Number.isFinite(last) && last !== 0 ? (changeAmount / last) * 100 : 0;
+  const amplitude = low > 0 ? ((high - low) / low) * 100 : 0;
+
+  return {
+    date,
+    timestamp,
+    open,
+    close,
+    high,
+    low,
+    volume: Number(item.Volume || 0),
+    amount: Number(item.Amount || 0) / TDX_PRICE_SCALE,
+    amplitude,
+    changePercent,
+    changeAmount,
+    turnoverRate: 0
+  };
+}
+
+async function fetchEastMoneyHistory(symbol, options = {}) {
   const period = PERIOD_MAP[options.period] || PERIOD_MAP.daily;
   const limit = Math.min(Math.max(Number(options.limit || 320), 60), 1000);
   const adjusted = ADJUST_MAP[options.adjusted] || ADJUST_MAP.forward;
@@ -70,44 +142,103 @@ async function fetchAStockHistory(symbol, options = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`行情服务请求失败，HTTP ${response.status}`);
+    throw new Error(`东方财富行情服务请求失败，HTTP ${response.status}`);
   }
 
   const payload = await response.json();
   const data = payload?.data;
 
   if (!data?.klines?.length) {
-    throw new Error('没有拿到该股票的历史行情数据。');
+    throw new Error('东方财富没有返回该股票的历史行情数据。');
   }
 
-  const candles = data.klines
-    .map(parseKline)
-    .filter(
-      (item) =>
-        Number.isFinite(item.open) &&
-        Number.isFinite(item.high) &&
-        Number.isFinite(item.low) &&
-        Number.isFinite(item.close) &&
-        item.open > 0 &&
-        item.high > 0 &&
-        item.low > 0 &&
-        item.close > 0
-    )
-    .slice(-limit);
+  const candles = data.klines.map(parseEastMoneyKline).filter(buildCandleFilter).slice(-limit);
 
   if (candles.length < 30) {
-    throw new Error('历史数据不足，无法进行有效分析。');
+    throw new Error('东方财富历史数据不足，无法进行有效分析。');
   }
 
   return {
+    source: 'eastmoney',
     security: {
       code: data.code || symbol,
       name: data.name || symbol
     },
-    period: Object.keys(PERIOD_MAP).find((key) => PERIOD_MAP[key] === period) || 'daily',
-    adjusted: Object.keys(ADJUST_MAP).find((key) => ADJUST_MAP[key] === adjusted) || 'forward',
+    period: normalizePeriod(options.period),
+    adjusted: normalizeAdjusted(options.adjusted),
     candles
   };
+}
+
+function extractTdxName(payload, symbol) {
+  return payload?.data?.Name || payload?.data?.name || payload?.data?.CodeName || symbol;
+}
+
+async function fetchTdxSecurityName(symbol) {
+  try {
+    const response = await fetch(`${TDX_BASE_URL}/api/stock-info?code=${symbol}`);
+    if (!response.ok) {
+      return symbol;
+    }
+    const payload = await response.json();
+    return extractTdxName(payload, symbol);
+  } catch (_error) {
+    return symbol;
+  }
+}
+
+async function fetchTdxHistory(symbol, options = {}) {
+  const period = TDX_PERIOD_MAP[options.period] || TDX_PERIOD_MAP.daily;
+  const limit = Math.min(Math.max(Number(options.limit || 320), 60), 1000);
+  const response = await fetch(`${TDX_BASE_URL}/api/kline?code=${symbol}&type=${period}`);
+
+  if (!response.ok) {
+    throw new Error(`TDX 备用行情服务请求失败，HTTP ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const rows = payload?.data?.List;
+
+  if (!Array.isArray(rows) || !rows.length) {
+    throw new Error('TDX 备用行情服务没有返回该股票的历史数据。');
+  }
+
+  const candles = rows
+    .slice()
+    .map(parseTdxKline)
+    .filter((item) => buildCandleFilter(item) && item.timestamp > 0)
+    .slice(-limit);
+
+  if (candles.length < 30) {
+    throw new Error('TDX 备用行情历史数据不足，无法进行有效分析。');
+  }
+
+  const name = await fetchTdxSecurityName(symbol);
+
+  return {
+    source: 'tdx-api',
+    security: {
+      code: symbol,
+      name
+    },
+    period: normalizePeriod(options.period),
+    adjusted: normalizeAdjusted(options.adjusted),
+    candles
+  };
+}
+
+async function fetchAStockHistory(symbol, options = {}) {
+  try {
+    return await fetchEastMoneyHistory(symbol, options);
+  } catch (primaryError) {
+    console.warn(`[marketData] EastMoney failed for ${symbol}: ${primaryError.message}`);
+
+    try {
+      return await fetchTdxHistory(symbol, options);
+    } catch (fallbackError) {
+      throw new Error(`主行情源失败：${primaryError.message}；备用行情源失败：${fallbackError.message}`);
+    }
+  }
 }
 
 module.exports = {
@@ -115,3 +246,5 @@ module.exports = {
   normalizeSymbol,
   resolveMarket
 };
+
+
