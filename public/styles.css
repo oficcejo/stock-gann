@@ -676,3 +676,57 @@ a {
     max-width: none;
   }
 }
+
+.drawing-line-preview {
+  stroke: #16b9ff;
+  stroke-dasharray: 8 6;
+}
+
+.drawing-point-preview {
+  fill: #ffb84d;
+}
+
+.chart-tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(154, 184, 211, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.toolbar-tool {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.chart-frame:fullscreen .chart-toolbar {
+  padding: 16px 20px;
+}
+
+.chart-frame:fullscreen .chart-tool-group {
+  background: rgba(3, 11, 18, 0.56);
+  border-color: rgba(0, 194, 168, 0.18);
+}
+
+@media (max-width: 1180px) {
+  .toolbar-actions {
+    justify-content: flex-start;
+  }
+
+  .chart-tool-group {
+    order: -1;
+    width: 100%;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 960px) {
+  .toolbar-tool {
+    padding: 8px 10px;
+  }
+}

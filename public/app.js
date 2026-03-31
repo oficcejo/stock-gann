@@ -38,7 +38,7 @@ const overlayButtons=[...document.querySelectorAll('[data-overlay]')];
 const toolButtons=[...document.querySelectorAll('.tool-btn[data-tool]')];
 const OVERLAY_LABELS={trend:'趋势',fan:'扇形',time:'时间',level:'水平'};
 let chart,candleSeries,volumeSeries,latestContext=null,currentAiReport=null;
-let overlaySeries=[],defaultsLoaded=false,resizeBound=false,drawMode='crosshair',drawings=[],pendingTrendStart=null;
+let overlaySeries=[],defaultsLoaded=false,resizeBound=false,drawMode='crosshair',drawings=[],pendingTrendStart=null,pendingTrendEnd=null,drawingRenderFrame=null;
 const overlayState={trend:true,fan:true,time:true,level:true};
 
 function createChart(){
@@ -109,7 +109,7 @@ function updateDrawingHint(){
 }
 
 function setDrawMode(mode){
-  drawMode=mode;pendingTrendStart=null;
+  drawMode=mode;pendingTrendStart=null;pendingTrendEnd=null;
   drawingLayer.classList.toggle('is-interactive',drawMode!=='crosshair');
   drawingLayer.style.pointerEvents=drawMode==='crosshair'?'none':'auto';
   syncToolButtons();updateDrawingHint();updateStatusByContext();renderDrawings();
@@ -123,36 +123,98 @@ function resizeDrawingLayer(){
   renderDrawings();
 }
 
-function clampUnit(value){return Math.max(0,Math.min(1,value));}
-function getRelativePoint(event){const rect=chartContainer.getBoundingClientRect();return{x:clampUnit((event.clientX-rect.left)/rect.width),y:clampUnit((event.clientY-rect.top)/rect.height)};}
 function createSvgNode(tagName,attrs){const node=document.createElementNS('http://www.w3.org/2000/svg',tagName);Object.entries(attrs).forEach(([key,value])=>node.setAttribute(key,String(value)));return node;}
+function getChartPointFromEvent(event){
+  const rect=chartContainer.getBoundingClientRect();
+  const x=event.clientX-rect.left;
+  const y=event.clientY-rect.top;
+  const time=chart.timeScale().coordinateToTime(x);
+  const price=candleSeries.coordinateToPrice(y);
+  if(time===null||price===null||Number.isNaN(price)) return null;
+  return {time,price};
+}
+
+function getScreenPoint(point){
+  if(!point) return null;
+  const x=chart.timeScale().timeToCoordinate(point.time);
+  const y=candleSeries.priceToCoordinate(point.price);
+  if(x===null||y===null||Number.isNaN(x)||Number.isNaN(y)) return null;
+  return {x,y};
+}
+
+function syncDrawingRenderLoop(){
+  const shouldLoop=drawings.length>0||pendingTrendStart!==null;
+  if(!shouldLoop&&drawingRenderFrame!==null){cancelAnimationFrame(drawingRenderFrame);drawingRenderFrame=null;return;}
+  if(!shouldLoop||drawingRenderFrame!==null) return;
+  const tick=()=>{
+    renderDrawings();
+    if(drawings.length>0||pendingTrendStart!==null) drawingRenderFrame=requestAnimationFrame(tick);
+    else drawingRenderFrame=null;
+  };
+  drawingRenderFrame=requestAnimationFrame(tick);
+}
 
 function renderDrawings(){
   const width=Math.max(chartContainer.clientWidth,1);const height=Math.max(chartContainer.clientHeight,1);drawingLayer.innerHTML='';
   drawings.forEach((drawing)=>{
     if(drawing.type==='trendline'){
-      drawingLayer.appendChild(createSvgNode('line',{x1:drawing.x1*width,y1:drawing.y1*height,x2:drawing.x2*width,y2:drawing.y2*height,class:'drawing-line'}));
+      const start=getScreenPoint({time:drawing.time1,price:drawing.price1});
+      const end=getScreenPoint({time:drawing.time2,price:drawing.price2});
+      if(!start||!end) return;
+      drawingLayer.appendChild(createSvgNode('line',{x1:start.x,y1:start.y,x2:end.x,y2:end.y,class:'drawing-line'}));
+      drawingLayer.appendChild(createSvgNode('circle',{cx:start.x,cy:start.y,r:4,class:'drawing-point'}));
+      drawingLayer.appendChild(createSvgNode('circle',{cx:end.x,cy:end.y,r:4,class:'drawing-point'}));
       return;
     }
-    if(drawing.type==='horizontal') drawingLayer.appendChild(createSvgNode('line',{x1:0,y1:drawing.y*height,x2:width,y2:drawing.y*height,class:'drawing-line drawing-line-horizontal'}));
+    if(drawing.type==='horizontal'){
+      const y=candleSeries.priceToCoordinate(drawing.price);
+      if(y===null||Number.isNaN(y)) return;
+      drawingLayer.appendChild(createSvgNode('line',{x1:0,y1:y,x2:width,y2:y,class:'drawing-line drawing-line-horizontal'}));
+    }
   });
-  if(drawMode==='trendline'&&pendingTrendStart) drawingLayer.appendChild(createSvgNode('circle',{cx:pendingTrendStart.x*width,cy:pendingTrendStart.y*height,r:5,class:'drawing-point'}));
+  if(drawMode==='trendline'&&pendingTrendStart){
+    const start=getScreenPoint(pendingTrendStart);
+    const end=getScreenPoint(pendingTrendEnd||pendingTrendStart);
+    if(start&&end){
+      drawingLayer.appendChild(createSvgNode('line',{x1:start.x,y1:start.y,x2:end.x,y2:end.y,class:'drawing-line drawing-line-preview'}));
+      drawingLayer.appendChild(createSvgNode('circle',{cx:start.x,cy:start.y,r:5,class:'drawing-point'}));
+      drawingLayer.appendChild(createSvgNode('circle',{cx:end.x,cy:end.y,r:5,class:'drawing-point drawing-point-preview'}));
+    }
+  }
 }
 
 function handleDrawingClick(event){
   if(drawMode==='crosshair') return;
-  const point=getRelativePoint(event);
+  if(event.button!==undefined&&event.button!==0) return;
+  event.preventDefault();
+  let point=getChartPointFromEvent(event);
+  if(!point&&drawMode==='trendline'&&pendingTrendEnd) point=pendingTrendEnd;
+  if(!point) return;
   if(drawMode==='trendline'){
-    if(!pendingTrendStart){pendingTrendStart=point;updateDrawingHint();updateStatusByContext();renderDrawings();return;}
-    drawings.push({type:'trendline',x1:pendingTrendStart.x,y1:pendingTrendStart.y,x2:point.x,y2:point.y});
-    pendingTrendStart=null;
+    if(!pendingTrendStart){pendingTrendStart=point;pendingTrendEnd=point;updateDrawingHint();updateStatusByContext();renderDrawings();syncDrawingRenderLoop();return;}
+    drawings.push({type:'trendline',time1:pendingTrendStart.time,price1:pendingTrendStart.price,time2:point.time,price2:point.price});
+    pendingTrendStart=null;pendingTrendEnd=null;
   }
-  if(drawMode==='horizontal') drawings.push({type:'horizontal',y:point.y});
-  renderDrawings();updateDrawingHint();updateStatusByContext();
+  if(drawMode==='horizontal') drawings.push({type:'horizontal',price:point.price});
+  renderDrawings();updateDrawingHint();updateStatusByContext();syncDrawingRenderLoop();
 }
 
-function undoDrawing(){pendingTrendStart=null;if(drawings.length) drawings.pop();renderDrawings();updateDrawingHint();updateStatusByContext();}
-function clearDrawings(){drawings=[];pendingTrendStart=null;renderDrawings();updateDrawingHint();updateStatusByContext();}
+function handleDrawingMove(event){
+  if(drawMode!=='trendline'||!pendingTrendStart) return;
+  const point=getChartPointFromEvent(event);
+  if(!point) return;
+  pendingTrendEnd=point;
+  renderDrawings();
+}
+
+function handleDrawingLeave(){
+  if(drawMode!=='trendline'||!pendingTrendStart) return;
+  pendingTrendEnd=pendingTrendStart;
+  renderDrawings();
+}
+
+function undoDrawing(){pendingTrendStart=null;pendingTrendEnd=null;if(drawings.length) drawings.pop();renderDrawings();updateDrawingHint();updateStatusByContext();syncDrawingRenderLoop();}
+function clearDrawings(){drawings=[];pendingTrendStart=null;pendingTrendEnd=null;renderDrawings();updateDrawingHint();updateStatusByContext();syncDrawingRenderLoop();}
 function toggleOverlay(key){overlayState[key]=!overlayState[key];syncOverlayButtons();if(latestContext){renderOverlays(latestContext.history,latestContext.report);renderGuide(latestContext.history,latestContext.report);}else updateStatusByContext();}
 function buildTrendLines(history,report){
   const lowCandle=history.candles[report.pivots.low.index];
@@ -393,7 +455,9 @@ function attachEvents(){
     if(tool==='clear'){clearDrawings();return;}
     setDrawMode(tool);
   }));
-  drawingLayer.addEventListener('click',handleDrawingClick);
+  drawingLayer.addEventListener('pointerdown',handleDrawingClick);
+  drawingLayer.addEventListener('pointermove',handleDrawingMove);
+  drawingLayer.addEventListener('pointerleave',handleDrawingLeave);
   [llmBaseUrlInput,llmModelInput,llmApiKeyInput,llmTemperatureInput,llmSystemPromptInput].forEach((input)=>{input.addEventListener('change',saveLlmConfig);input.addEventListener('blur',saveLlmConfig);});
   [openAiModalBtn,quickAiBtn].forEach((button)=>button.addEventListener('click',openAiModal));
   toggleFullscreenBtn.addEventListener('click',()=>{toggleChartFullscreen().catch((error)=>{statusText.textContent=`全屏切换失败：${error.message}`;});});
@@ -415,3 +479,7 @@ async function boot(){
 }
 
 boot().catch((error)=>{trendBias.textContent='加载失败';trendBias.className='hero-value neutral';forecastText.textContent=error.message;statusText.textContent='初始化失败，请稍后重试。';});
+
+
+
+
