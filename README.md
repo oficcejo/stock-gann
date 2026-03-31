@@ -2,6 +2,8 @@
 
 一个基于 Node.js 的 Web 应用，用于抓取 A 股历史行情，并基于江恩理论中的价格分割、江恩角度线、时间周期窗口等方法生成分析结果，同时支持接入 OpenAI 兼容 LLM 接口输出研究报告。
 
+微信交流群2：<img width="328" height="355" alt="image" src="https://github.com/user-attachments/assets/b31043de-8e9e-4b13-8b31-5c59d6f832a0" />
+
 ## 功能
 
 - A 股日线、周线、月线历史行情加载
