@@ -1,0 +1,202 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>江恩理论 A股预测终端</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="left-tools">
+        <button class="tool-btn active" data-tool="crosshair" aria-pressed="true">十字</button>
+        <button class="tool-btn active" data-tool="trend" aria-pressed="true">趋势</button>
+        <button class="tool-btn active" data-tool="fan" aria-pressed="true">扇形</button>
+        <button class="tool-btn active" data-tool="time" aria-pressed="true">时间</button>
+        <button class="tool-btn active" data-tool="level" aria-pressed="true">水平</button>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div class="brand-block">
+            <div class="brand-kicker">GANN LAB</div>
+            <div class="brand-title">A股江恩理论预测终端</div>
+          </div>
+
+          <div class="topbar-right">
+            <form id="controlForm" class="controls">
+              <label>
+                股票代码
+                <input id="symbolInput" type="text" value="600519" maxlength="6" />
+              </label>
+              <label>
+                周期
+                <select id="periodSelect">
+                  <option value="daily">日线</option>
+                  <option value="weekly">周线</option>
+                  <option value="monthly">月线</option>
+                </select>
+              </label>
+              <label>
+                复权
+                <select id="adjustedSelect">
+                  <option value="forward">前复权</option>
+                  <option value="none">不复权</option>
+                  <option value="backward">后复权</option>
+                </select>
+              </label>
+              <button type="submit" class="primary-btn">加载分析</button>
+            </form>
+
+            <div class="header-actions">
+              <button id="openAiModalBtn" type="button" class="ghost-btn">AI 分析报告</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="chart-frame">
+          <div class="chart-toolbar">
+            <div class="toolbar-title">
+              <span id="securityName">贵州茅台</span>
+              <span id="securityMeta">600519.SH · 日线</span>
+            </div>
+            <div class="toolbar-actions">
+              <span class="pill" data-pill="trend">Trend</span>
+              <span class="pill" data-pill="fan">Gann Fan</span>
+              <span class="pill" data-pill="time">Time Cycles</span>
+              <span class="pill" data-pill="level">Price Levels</span>
+            </div>
+          </div>
+
+          <div id="chart" class="chart-canvas"></div>
+        </section>
+      </main>
+
+      <aside class="right-panel">
+        <section class="panel-card hero-card">
+          <div class="panel-label">预测结论</div>
+          <div id="trendBias" class="hero-value">--</div>
+          <div id="forecastText" class="hero-text">等待加载分析数据。</div>
+          <div class="hero-actions">
+            <button id="quickAiBtn" type="button" class="primary-btn">打开 AI 报告</button>
+          </div>
+        </section>
+
+        <section class="panel-card compact-card">
+          <div class="panel-label">状态</div>
+          <p id="statusText">等待图表加载。</p>
+        </section>
+
+        <section class="panel-card compact-card">
+          <div class="panel-label">看图方法</div>
+          <div id="guideList" class="summary-list"></div>
+        </section>
+
+        <section class="panel-card compact-card">
+          <div class="panel-label">关键价格位</div>
+          <div id="priceLevels" class="metric-list"></div>
+        </section>
+
+        <section class="panel-card compact-card">
+          <div class="panel-label">时间窗口</div>
+          <div id="timeCycles" class="metric-list"></div>
+        </section>
+
+        <section class="panel-card compact-card wide-card">
+          <div class="panel-label">分析摘要</div>
+          <div id="summaryList" class="summary-list"></div>
+        </section>
+
+        <section class="panel-card risk-card wide-card">
+          <div class="panel-label">风险提示</div>
+          <p>江恩理论输出和 AI 报告仅供研究与教学演示，不构成任何投资建议。</p>
+        </section>
+      </aside>
+    </div>
+
+    <div id="aiModal" class="modal-shell" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="true"></div>
+      <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="aiModalTitle">
+        <header class="modal-header">
+          <div>
+            <div class="panel-label">AI Workspace</div>
+            <h2 id="aiModalTitle">江恩理论 AI 分析报告</h2>
+          </div>
+          <div class="modal-header-actions">
+            <button id="closeAiModalBtn" type="button" class="icon-btn" aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <div class="modal-body">
+          <section class="modal-side">
+            <div class="panel-card modal-panel">
+              <div class="panel-label">模型配置</div>
+              <div class="form-stack">
+                <label>
+                  Base URL
+                  <input id="llmBaseUrlInput" type="text" placeholder="https://api.openai.com/v1" />
+                </label>
+                <label>
+                  Model
+                  <input id="llmModelInput" type="text" placeholder="gpt-4o-mini" />
+                </label>
+                <label>
+                  API Key
+                  <input id="llmApiKeyInput" type="password" placeholder="sk-..." />
+                </label>
+                <label>
+                  Temperature
+                  <input id="llmTemperatureInput" type="number" min="0" max="2" step="0.1" value="0.4" />
+                </label>
+                <label>
+                  System Prompt
+                  <textarea id="llmSystemPromptInput" rows="6" placeholder="用于约束模型输出风格和研究口径"></textarea>
+                </label>
+              </div>
+            </div>
+
+            <div class="panel-card modal-panel">
+              <div class="panel-label">操作</div>
+              <div class="button-row stacked-row">
+                <button id="generateAiReportBtn" type="button" class="primary-btn wide-btn">生成 AI 报告</button>
+                <button id="exportAiPdfBtn" type="button" class="ghost-btn wide-btn">导出 PDF</button>
+              </div>
+              <div id="aiMeta" class="mini-meta">未生成</div>
+            </div>
+          </section>
+
+          <section class="modal-report-wrap">
+            <div class="panel-card modal-panel report-panel">
+              <div class="panel-label">报告结果</div>
+              <div id="aiReportPrintable" class="report-printable">
+                <div class="report-head">
+                  <h3 id="aiReportTitle">AI 江恩分析报告</h3>
+                  <p id="aiReportSubtitle">配置 OpenAI 兼容接口后，点击“生成 AI 报告”。</p>
+                </div>
+                <pre id="aiReportContent" class="report-box">配置 OpenAI 兼容接口后，点击“生成 AI 报告”。</pre>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <template id="metricItemTemplate">
+      <div class="metric-item">
+        <span class="metric-name"></span>
+        <span class="metric-value"></span>
+      </div>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
