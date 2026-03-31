@@ -119,6 +119,74 @@ function parseTdxKline(item) {
   };
 }
 
+function buildTdxQuoteDailyCandle(payload) {
+  const rawDate = String(payload?.data?.minute?.date || '').trim();
+  const quote = payload?.data?.quote;
+  const quoteK = quote?.K;
+
+  if (!/^\d{8}$/.test(rawDate) || !quoteK) {
+    return null;
+  }
+
+  const date = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+  const timestamp = Math.floor(new Date(`${date}T15:00:00+08:00`).getTime() / 1000);
+  const open = toScaledPrice(quoteK.Open);
+  const close = toScaledPrice(quoteK.Close);
+  const high = toScaledPrice(quoteK.High);
+  const low = toScaledPrice(quoteK.Low);
+  const last = toScaledPrice(quoteK.Last);
+  const changeAmount = Number.isFinite(last) && last !== 0 ? close - last : 0;
+  const changePercent = Number.isFinite(last) && last !== 0 ? (changeAmount / last) * 100 : 0;
+  const amplitude = low > 0 ? ((high - low) / low) * 100 : 0;
+
+  return {
+    date,
+    timestamp,
+    open,
+    close,
+    high,
+    low,
+    volume: Number(quote.TotalHand || 0),
+    amount: Number(quote.Amount || 0),
+    amplitude,
+    changePercent,
+    changeAmount,
+    turnoverRate: 0
+  };
+}
+
+function extractLatestTdxDailyCandle(payload) {
+  const rows = payload?.data?.kline_day?.List;
+  const latestKlineRow = Array.isArray(rows) ? rows[rows.length - 1] : null;
+  const latestKlineCandle = latestKlineRow ? parseTdxKline(latestKlineRow) : null;
+  const quoteCandle = buildTdxQuoteDailyCandle(payload);
+
+  if (!quoteCandle) {
+    return latestKlineCandle;
+  }
+
+  if (!latestKlineCandle) {
+    return quoteCandle;
+  }
+
+  if (quoteCandle.timestamp >= latestKlineCandle.timestamp) {
+    return quoteCandle;
+  }
+
+  return latestKlineCandle;
+}
+
+function mergeCandlesByDate(candles, latestCandle) {
+  if (!latestCandle || !buildCandleFilter(latestCandle) || latestCandle.timestamp <= 0) {
+    return candles;
+  }
+
+  const merged = new Map(candles.map((item) => [item.date, item]));
+  merged.set(latestCandle.date, latestCandle);
+
+  return Array.from(merged.values()).sort((left, right) => left.timestamp - right.timestamp);
+}
+
 async function fetchEastMoneyHistory(symbol, options = {}) {
   const period = PERIOD_MAP[options.period] || PERIOD_MAP.daily;
   const limit = Math.min(Math.max(Number(options.limit || 320), 60), 1000);
@@ -174,16 +242,15 @@ function extractTdxName(payload, symbol) {
   return payload?.data?.Name || payload?.data?.name || payload?.data?.CodeName || symbol;
 }
 
-async function fetchTdxSecurityName(symbol) {
+async function fetchTdxStockInfo(symbol) {
   try {
     const response = await fetch(`${TDX_BASE_URL}/api/stock-info?code=${symbol}`);
     if (!response.ok) {
-      return symbol;
+      return null;
     }
-    const payload = await response.json();
-    return extractTdxName(payload, symbol);
+    return await response.json();
   } catch (_error) {
-    return symbol;
+    return null;
   }
 }
 
@@ -203,17 +270,22 @@ async function fetchTdxHistory(symbol, options = {}) {
     throw new Error('TDX 备用行情服务没有返回该股票的历史数据。');
   }
 
-  const candles = rows
+  const stockInfo = await fetchTdxStockInfo(symbol);
+  let candles = rows
     .slice()
     .map(parseTdxKline)
     .filter((item) => buildCandleFilter(item) && item.timestamp > 0)
     .slice(-limit);
 
+  if (period === TDX_PERIOD_MAP.daily) {
+    candles = mergeCandlesByDate(candles, extractLatestTdxDailyCandle(stockInfo)).slice(-limit);
+  }
+
   if (candles.length < 30) {
     throw new Error('TDX 备用行情历史数据不足，无法进行有效分析。');
   }
 
-  const name = await fetchTdxSecurityName(symbol);
+  const name = extractTdxName(stockInfo, symbol);
 
   return {
     source: 'tdx-api',
@@ -246,5 +318,3 @@ module.exports = {
   normalizeSymbol,
   resolveMarket
 };
-
-
