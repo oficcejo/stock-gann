@@ -30,7 +30,7 @@ npm.cmd install --cache .npm-cache
 npm.cmd start
 ```
 
-启动后打开 `http://localhost:3000`。
+启动后打开 `http://localhost:3020`。
 
 ## 可选环境变量
 
