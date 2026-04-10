@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -101,6 +101,8 @@
               <button type="button" class="pill is-active" data-overlay="fan">Gann Fan</button>
               <button type="button" class="pill is-active" data-overlay="time">Time Cycles</button>
               <button type="button" class="pill is-active" data-overlay="level">Price Levels</button>
+              <button type="button" class="pill" data-overlay="s9">S9</button>
+              <button type="button" class="pill" data-overlay="w24">W24</button>
               <button id="toggleFullscreenBtn" type="button" class="ghost-btn toolbar-btn">全屏图表</button>
             </div>
           </div>
@@ -145,6 +147,12 @@
         <section class="panel-card compact-card">
           <div class="panel-label">时间窗口</div>
           <div id="timeCycles" class="metric-list"></div>
+        </section>
+
+        <section class="panel-card compact-card">
+          <div class="panel-label">高阶预测模型</div>
+          <button id="openGannModalBtn" type="button" class="primary-btn wide-btn" style="width:100%; margin: 12px 0 8px 0;">打开高阶模型分析</button>
+          <div class="mini-meta" style="text-align:center;">包含九方格极坐标与轮中轮推演</div>
         </section>
 
         <section class="panel-card compact-card wide-card">
@@ -226,6 +234,41 @@
                 <pre id="aiReportContent" class="report-box">配置 OpenAI 兼容接口后，点击“生成 AI 报告”。</pre>
               </div>
             </div>
+          </section>
+        </div>
+      </section>
+    </div>
+
+    <div id="gannModal" class="modal-shell" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal="true"></div>
+      <section class="modal-card" style="max-width: 900px;" role="dialog" aria-modal="true" aria-labelledby="gannModalTitle">
+        <header class="modal-header">
+          <div>
+            <div class="panel-label">Gann Advanced Tools</div>
+            <h2 id="gannModalTitle">江恩高阶预测模型</h2>
+          </div>
+          <div class="modal-header-actions">
+            <button id="closeGannModalBtn" type="button" class="icon-btn" aria-label="关闭">×</button>
+          </div>
+        </header>
+
+        <div class="modal-body" style="grid-template-columns: 1fr 1fr;">
+          <section class="panel-card modal-panel" style="overflow-y:auto; max-height: 70vh;">
+            <div class="panel-label">九方格（Square of Nine）</div>
+            <div id="squareOfNineMeta" class="mini-meta" style="margin-top:8px"></div>
+            <div class="gann-chart-wrap"><canvas id="s9Canvas" width="700" height="700" style="width:350px;height:350px;"></canvas></div>
+            <div id="s9Prediction" class="prediction-text"></div>
+            <div id="squareOfNineLevels" class="metric-list"></div>
+          </section>
+
+          <section class="panel-card modal-panel" style="overflow-y:auto; max-height: 70vh;">
+            <div class="panel-label">轮中轮（Wheel of 24）</div>
+            <div id="wheelOf24Meta" class="mini-meta" style="margin-top:8px"></div>
+            <div class="gann-chart-wrap"><canvas id="w24Canvas" width="700" height="700" style="width:350px;height:350px;"></canvas></div>
+            <div id="w24Prediction" class="prediction-text"></div>
+            <div id="wheelOf24Levels" class="metric-list"></div>
+            <div class="panel-label" style="margin-top:16px">时间预测</div>
+            <div id="wheelOf24Time" class="metric-list"></div>
           </section>
         </div>
       </section>

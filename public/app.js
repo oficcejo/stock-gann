@@ -1,4 +1,4 @@
-﻿const STORAGE_KEY='gann-llm-config';
+const STORAGE_KEY='gann-llm-config';
 const chartContainer=document.getElementById('chart');
 const chartFrame=document.getElementById('chartFrame');
 const drawingLayer=document.getElementById('drawingLayer');
@@ -34,13 +34,26 @@ const llmSystemPromptInput=document.getElementById('llmSystemPromptInput');
 const generateAiReportBtn=document.getElementById('generateAiReportBtn');
 const exportAiPdfBtn=document.getElementById('exportAiPdfBtn');
 const metricItemTemplate=document.getElementById('metricItemTemplate');
+const squareOfNineMetaEl=document.getElementById('squareOfNineMeta');
+const squareOfNineLevelsEl=document.getElementById('squareOfNineLevels');
+const wheelOf24MetaEl=document.getElementById('wheelOf24Meta');
+const wheelOf24LevelsEl=document.getElementById('wheelOf24Levels');
+const wheelOf24TimeEl=document.getElementById('wheelOf24Time');
+const s9CanvasEl=document.getElementById('s9Canvas');
+const s9PredictionEl=document.getElementById('s9Prediction');
+const w24CanvasEl=document.getElementById('w24Canvas');
+const w24PredictionEl=document.getElementById('w24Prediction');
+const openGannModalBtn=document.getElementById('openGannModalBtn');
+const closeGannModalBtn=document.getElementById('closeGannModalBtn');
+const gannModal=document.getElementById('gannModal');
+
 const overlayButtons=[...document.querySelectorAll('[data-overlay]')];
 const toolButtons=[...document.querySelectorAll('.tool-btn[data-tool]')];
-const OVERLAY_LABELS={trend:'趋势',fan:'扇形',time:'时间',level:'水平'};
+const OVERLAY_LABELS={trend:'趋势',fan:'扇形',time:'时间',level:'水平',s9:'九方格',w24:'轮中轮'};
 const FUTURE_BAR_OFFSET=18;
-let chart,candleSeries,volumeSeries,latestContext=null,currentAiReport=null;
+let chart,candleSeries,volumeSeries,latestContext=null,currentAiReport=null,analysisCache=null;
 let overlaySeries=[],defaultsLoaded=false,resizeBound=false,drawMode='crosshair',drawings=[],pendingTrendStart=null,pendingTrendEnd=null,drawingRenderFrame=null;
-const overlayState={trend:true,fan:true,time:true,level:true};
+const overlayState={trend:true,fan:true,time:true,level:true,s9:false,w24:false};
 
 function normalizeDrawingsState(input){
   if(!Array.isArray(input)) return [];
@@ -69,8 +82,12 @@ function createChart(){
   candleSeries=chart.addCandlestickSeries({upColor:'#1fd18a',downColor:'#ff5b6e',borderUpColor:'#1fd18a',borderDownColor:'#ff5b6e',wickUpColor:'#1fd18a',wickDownColor:'#ff5b6e',priceLineVisible:true});
   volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'',color:'rgba(0, 194, 168, 0.45)'});
   volumeSeries.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
-  ensureFutureSpace();
-  if(!resizeBound){window.addEventListener('resize',handleResize);document.addEventListener('fullscreenchange',handleFullscreenChange);resizeBound=true;}
+  if(!resizeBound){
+    const resizeObserver=new ResizeObserver(()=>requestAnimationFrame(handleResize));
+    resizeObserver.observe(chartContainer);
+    document.addEventListener('fullscreenchange',handleFullscreenChange);
+    resizeBound=true;
+  }
   resizeDrawingLayer();
 }
 
@@ -81,7 +98,10 @@ function ensureFutureSpace(){
 
 function handleResize(){
   if(!chart) return;
-  chart.applyOptions({width:chartContainer.clientWidth,height:chartContainer.clientHeight});
+  const width=chartContainer.clientWidth;
+  const height=chartContainer.clientHeight;
+  if(width===0||height===0) return;
+  chart.applyOptions({width,height});
   ensureFutureSpace();
   resizeDrawingLayer();
 }
@@ -90,7 +110,26 @@ function updateFullscreenButton(){
   toggleFullscreenBtn.textContent=document.fullscreenElement===chartFrame?'退出全屏':'全屏图表';
 }
 
-function handleFullscreenChange(){updateFullscreenButton();setTimeout(handleResize,60);}
+function waitAndResize(maxTries=20,interval=50){
+  let tries=0;
+  const poll=()=>{
+    const w=chartContainer.clientWidth,h=chartContainer.clientHeight;
+    if(w>0&&h>0){
+      chart.applyOptions({width:w,height:h});
+      ensureFutureSpace();
+      resizeDrawingLayer();
+      chart.timeScale().fitContent();
+      return;
+    }
+    if(++tries<maxTries) setTimeout(poll,interval);
+  };
+  poll();
+}
+
+function handleFullscreenChange(){
+  updateFullscreenButton();
+  waitAndResize();
+}
 
 async function toggleChartFullscreen(){
   try{
@@ -276,12 +315,28 @@ function buildTimeCycles(history,report){
   report.timeCycles.forEach((cycle)=>{addLineSeries('time',[{time:cycle.timestamp,value:low},{time:cycle.timestamp,value:high}],{color:'rgba(22, 185, 255, 0.22)',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,crosshairMarkerVisible:false,priceLineVisible:false,lastValueVisible:false});});
 }
 
+function buildSquareOfNineOverlay(history,report){
+  if(!report.squareOfNine) return;
+  const s9=report.squareOfNine;const pick=[45,90,180,360];
+  const items=[...s9.resistances.filter((r)=>pick.includes(r.angle)).map((r)=>({p:r.price,c:'rgba(255, 91, 110, 0.4)'})),...s9.supports.filter((s)=>pick.includes(s.angle)).map((s)=>({p:s.price,c:'rgba(31, 209, 138, 0.4)'}))];
+  items.forEach((item)=>{addLineSeries('s9',history.candles.map((c)=>({time:c.timestamp,value:item.p})),{color:item.c,lineWidth:1,lineStyle:LightweightCharts.LineStyle.LargeDashed,crosshairMarkerVisible:false,priceLineVisible:false,lastValueVisible:false});});
+}
+
+function buildWheelOf24Overlay(history,report){
+  if(!report.wheelOf24) return;
+  const w24=report.wheelOf24;
+  const items=[...w24.cardinalLevels.map((l)=>({p:l.price,c:l.direction==='resistance'?'rgba(255, 91, 110, 0.45)':'rgba(31, 209, 138, 0.45)'})),...w24.ordinalLevels.map((l)=>({p:l.price,c:l.direction==='resistance'?'rgba(202, 168, 255, 0.3)':'rgba(22, 185, 255, 0.3)'}))];
+  items.forEach((item)=>{addLineSeries('w24',history.candles.map((c)=>({time:c.timestamp,value:item.p})),{color:item.c,lineWidth:1,lineStyle:LightweightCharts.LineStyle.SparseDotted,crosshairMarkerVisible:false,priceLineVisible:false,lastValueVisible:false});});
+}
+
 function renderOverlays(history,report){
   clearOverlaySeries();
   if(overlayState.trend) buildTrendLines(history,report);
   if(overlayState.fan) buildFanLines(report);
   if(overlayState.level) buildPriceLevels(history,report);
   if(overlayState.time) buildTimeCycles(history,report);
+  if(overlayState.s9) buildSquareOfNineOverlay(history,report);
+  if(overlayState.w24) buildWheelOf24Overlay(history,report);
 }
 
 function renderMetricList(container,items,formatter){
@@ -305,6 +360,8 @@ function renderGuide(history,report){
     `再看水平位：离现价最近的分割位是 ${nearestLevel?`${nearestLevel.label}（${nearestLevel.value.toFixed(2)}）`:'--'}。可把 ${support?support.value.toFixed(2):'--'} 视为短线支撑，把 ${resistance?resistance.value.toFixed(2):'--'} 视为短线压力。`,
     `最后看时间：竖线是江恩时间窗口。${nextCycle?`下一关注窗口约在 ${nextCycle.cycle} 周期后，还差 ${nextCycle.barsAway} 根K线。`:'当前样本内的主要时间窗口已经走完，需要继续观察新K线。'}`
   ];
+  if(report.squareOfNine){const s9n=report.squareOfNine.nearest;guides.push(`九方格：当前角度 ${report.squareOfNine.currentAngle}°。最近上方阻力 ${s9n.resistance?s9n.resistance.price:'--'}，最近下方支撑 ${s9n.support?s9n.support.price:'--'}。打开 S9 图层可查看。`);}
+  if(report.wheelOf24){guides.push(`轮中轮：位于第 ${report.wheelOf24.sector} 扇区（${report.wheelOf24.sectorRange}）。十字线和×线交叉标注了关键共振价位，打开 W24 图层可查看。`);}
   guideListEl.innerHTML='';
   guides.forEach((text)=>{const p=document.createElement('p');p.textContent=text;guideListEl.appendChild(p);});
   updateStatusByContext();
@@ -318,6 +375,168 @@ function setForecast(report){
   trendBias.textContent=biasText;
   trendBias.className=`hero-value ${forecast.trendBias}`;
   forecastText.textContent=`最新收盘 ${forecast.lastClose}，短线动量 ${forecast.momentum}%。关注价格目标 ${targets}；下一组时间窗口 ${windows||'已在当前样本内完成'}。`;
+}
+
+/* ── S9 极坐标图 ────────────────────────── */
+function drawS9Chart(s9){
+  if(!s9CanvasEl) return;
+  const ctx=s9CanvasEl.getContext('2d');
+  const S=700,cx=S/2,cy=S/2,maxR=cx-60;
+  ctx.clearRect(0,0,S,S);
+  ctx.beginPath();ctx.arc(cx,cy,maxR+30,0,Math.PI*2);
+  ctx.fillStyle='rgba(5,15,24,0.92)';ctx.fill();
+  [0.25,0.5,0.75,1].forEach(f=>{ctx.beginPath();ctx.arc(cx,cy,maxR*f,0,Math.PI*2);ctx.strokeStyle='rgba(143,169,192,0.08)';ctx.lineWidth=1;ctx.stroke();});
+  [0,45,90,135,180,225,270,315].forEach(a=>{
+    const rad=(a-90)*Math.PI/180,isC=a%90===0;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(rad)*maxR,cy+Math.sin(rad)*maxR);
+    ctx.strokeStyle=isC?'rgba(0,194,168,0.32)':'rgba(255,184,77,0.15)';ctx.lineWidth=isC?1.5:0.8;ctx.stroke();
+  });
+  const curRad=(s9.currentAngle-90)*Math.PI/180;
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(curRad)*maxR,cy+Math.sin(curRad)*maxR);
+  ctx.strokeStyle='rgba(31,209,138,0.5)';ctx.lineWidth=2.5;ctx.stroke();
+  const glow=ctx.createRadialGradient(cx,cy,0,cx,cy,28);
+  glow.addColorStop(0,'rgba(31,209,138,0.35)');glow.addColorStop(1,'rgba(31,209,138,0)');
+  ctx.fillStyle=glow;ctx.beginPath();ctx.arc(cx,cy,28,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(cx,cy,9,0,Math.PI*2);ctx.fillStyle='#1fd18a';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='#edf4fb';ctx.font='bold 28px Barlow,Noto Sans SC,sans-serif';ctx.textAlign='center';
+  ctx.fillText(s9.basePrice.toFixed(2),cx,cy-26);
+  const ringR={45:0.28,90:0.42,120:0.50,180:0.62,270:0.72,360:0.82,720:0.93};
+  s9.resistances.filter(r=>ringR[r.angle]).forEach(r=>{
+    const a=(s9.currentAngle+r.angle)%360,rad=(a-90)*Math.PI/180,rr=maxR*ringR[r.angle];
+    const lx=cx+Math.cos(rad)*rr,ly=cy+Math.sin(rad)*rr;
+    ctx.beginPath();ctx.arc(lx,ly,8,0,Math.PI*2);ctx.fillStyle='rgba(255,91,110,0.85)';ctx.fill();
+    ctx.fillStyle='rgba(255,91,110,0.95)';ctx.font='26px Barlow,sans-serif';ctx.textAlign='center';
+    ctx.fillText(r.price.toFixed(0),lx,ly-18);
+    ctx.fillStyle='rgba(255,91,110,0.55)';ctx.font='20px Barlow,sans-serif';ctx.fillText(r.label,lx,ly+26);
+  });
+  s9.supports.filter(s=>ringR[s.angle]).forEach(s=>{
+    const a=(s9.currentAngle-s.angle+720)%360,rad=(a-90)*Math.PI/180;
+    const invR={45:0.28,90:0.42,120:0.50,180:0.62,270:0.72,360:0.82,720:0.93};
+    const rr=maxR*invR[s.angle]*0.85;
+    if(rr<30) return;
+    const lx=cx+Math.cos(rad)*rr,ly=cy+Math.sin(rad)*rr;
+    ctx.beginPath();ctx.arc(lx,ly,8,0,Math.PI*2);ctx.fillStyle='rgba(31,209,138,0.85)';ctx.fill();
+    ctx.fillStyle='rgba(31,209,138,0.95)';ctx.font='26px Barlow,sans-serif';ctx.textAlign='center';
+    ctx.fillText(s.price.toFixed(0),lx,ly-18);
+    ctx.fillStyle='rgba(31,209,138,0.55)';ctx.font='20px Barlow,sans-serif';ctx.fillText(s.label,lx,ly+26);
+  });
+  [0,45,90,135,180,225,270,315].forEach(a=>{
+    const rad=(a-90)*Math.PI/180,lr=maxR+32;
+    ctx.fillStyle='#8fa9c0';ctx.font='22px Barlow,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(a+'°',cx+Math.cos(rad)*lr,cy+Math.sin(rad)*lr);
+  });
+  ctx.fillStyle='rgba(143,169,192,0.4)';ctx.font='20px Barlow,sans-serif';ctx.textAlign='center';
+  ctx.fillText('SQUARE OF NINE',cx,cy+20);
+}
+
+function genS9Prediction(s9){
+  if(!s9PredictionEl||!s9) return;
+  const n=s9.nearest;if(!n.resistance||!n.support){s9PredictionEl.innerHTML='';return;}
+  const dR=Math.abs(n.resistance.change),dS=Math.abs(n.support.change);
+  const r90=s9.resistances.find(r=>r.angle===90),s90=s9.supports.find(s=>s.angle===90);
+  const r360=s9.resistances.find(r=>r.angle===360),s360=s9.supports.find(s=>s.angle===360);
+  let html=`<span class="pred-label res">阻力</span>最近 ${n.resistance.price}（${n.resistance.label}，距 ${n.resistance.change>0?'+':''}${n.resistance.change}%）`;
+  if(r90) html+=`→ 次阻力 ${r90.price}（${r90.label}）`;
+  html+=`<br><span class="pred-label sup">支撑</span>最近 ${n.support.price}（${n.support.label}，距 ${n.support.change}%）`;
+  if(s90) html+=`→ 次支撑 ${s90.price}（${s90.label}）`;
+  html+=`<br><span class="pred-label hint">研判</span>`;
+  if(dR<dS) html+=`价格偏向阻力侧，关注能否突破 ${n.resistance.price}。突破后目标 ${r90?r90.price:'--'}。`;
+  else html+=`价格偏向支撑侧，关注 ${n.support.price} 能否守住。失守则看向 ${s90?s90.price:'--'}。`;
+  if(r360) html+=` 360°强阻力 ${r360.price}（距 ${r360.change>0?'+':''}${r360.change}%）。`;
+  s9PredictionEl.innerHTML=html;
+}
+
+function drawW24Chart(w24){
+  if(!w24CanvasEl) return;
+  const ctx=w24CanvasEl.getContext('2d');
+  const S=700,cx=S/2,cy=S/2,maxR=cx-50;
+  ctx.clearRect(0,0,S,S);
+  ctx.beginPath();ctx.arc(cx,cy,maxR+30,0,Math.PI*2);
+  ctx.fillStyle='rgba(5,15,24,0.92)';ctx.fill();
+  for(let i=0;i<24;i++){
+    const a=i*15,rad=(a-90)*Math.PI/180,isC=a%90===0,isO=a%45===0&&!isC;
+    ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(rad)*maxR,cy+Math.sin(rad)*maxR);
+    ctx.strokeStyle=isC?'rgba(0,194,168,0.45)':isO?'rgba(255,184,77,0.3)':'rgba(143,169,192,0.07)';
+    ctx.lineWidth=isC?2:isO?1.5:0.6;ctx.stroke();
+  }
+  [0.33,0.66,1].forEach(f=>{ctx.beginPath();ctx.arc(cx,cy,maxR*f,0,Math.PI*2);ctx.strokeStyle='rgba(143,169,192,0.06)';ctx.lineWidth=1;ctx.stroke();});
+  const ss=(w24.sector-1)*15,se=w24.sector*15;
+  ctx.beginPath();ctx.moveTo(cx,cy);
+  ctx.arc(cx,cy,maxR*0.88,(ss-90)*Math.PI/180,(se-90)*Math.PI/180);
+  ctx.closePath();ctx.fillStyle='rgba(22,185,255,0.08)';ctx.fill();
+  const pRad=(w24.wheelAngle-90)*Math.PI/180,pR=maxR*0.38;
+  const px=cx+Math.cos(pRad)*pR,py=cy+Math.sin(pRad)*pR;
+  const glow=ctx.createRadialGradient(px,py,0,px,py,28);
+  glow.addColorStop(0,'rgba(22,185,255,0.35)');glow.addColorStop(1,'rgba(22,185,255,0)');
+  ctx.fillStyle=glow;ctx.beginPath();ctx.arc(px,py,28,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.arc(px,py,9,0,Math.PI*2);ctx.fillStyle='#16b9ff';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=2;ctx.stroke();
+  ctx.fillStyle='#edf4fb';ctx.font='bold 28px Barlow,Noto Sans SC,sans-serif';ctx.textAlign='center';
+  ctx.fillText(w24.basePrice.toFixed(2),px,py-28);
+  w24.cardinalLevels.forEach(l=>{
+    const rad=(l.angle-90)*Math.PI/180,rr=maxR*(l.direction==='resistance'?0.78:0.55);
+    const lx=cx+Math.cos(rad)*rr,ly=cy+Math.sin(rad)*rr;
+    ctx.beginPath();ctx.arc(lx,ly,7,0,Math.PI*2);
+    ctx.fillStyle=l.direction==='resistance'?'#ff5b6e':'#1fd18a';ctx.fill();
+    ctx.fillStyle=l.direction==='resistance'?'rgba(255,91,110,0.95)':'rgba(31,209,138,0.95)';
+    ctx.font='22px Barlow,sans-serif';ctx.textAlign='center';ctx.fillText(l.price.toFixed(0),lx,ly-16);
+  });
+  w24.ordinalLevels.forEach(l=>{
+    const rad=(l.angle-90)*Math.PI/180,rr=maxR*(l.direction==='resistance'?0.72:0.48);
+    const lx=cx+Math.cos(rad)*rr,ly=cy+Math.sin(rad)*rr;
+    ctx.beginPath();ctx.arc(lx,ly,5,0,Math.PI*2);
+    ctx.fillStyle=l.direction==='resistance'?'rgba(202,168,255,0.85)':'rgba(22,185,255,0.85)';ctx.fill();
+    ctx.fillStyle=l.direction==='resistance'?'rgba(202,168,255,0.9)':'rgba(22,185,255,0.9)';
+    ctx.font='20px Barlow,sans-serif';ctx.textAlign='center';ctx.fillText(l.price.toFixed(0),lx,ly-14);
+  });
+  [0,45,90,135,180,225,270,315].forEach(a=>{
+    const rad=(a-90)*Math.PI/180,lr=maxR+30;
+    ctx.fillStyle='#8fa9c0';ctx.font='22px Barlow,sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(a+'°',cx+Math.cos(rad)*lr,cy+Math.sin(rad)*lr);
+  });
+  ctx.fillStyle='rgba(143,169,192,0.4)';ctx.font='20px Barlow,sans-serif';ctx.textAlign='center';
+  ctx.fillText('WHEEL OF 24',cx,cy+20);
+}
+
+function genW24Prediction(w24){
+  if(!w24PredictionEl||!w24) return;
+  const cSup=w24.cardinalLevels.filter(l=>l.direction==='support').sort((a,b)=>b.price-a.price);
+  const cRes=w24.cardinalLevels.filter(l=>l.direction==='resistance').sort((a,b)=>a.price-b.price);
+  let html=`<span class="pred-label hint">定位</span>角度 ${w24.wheelAngle}°，第 ${w24.sector} 扇区（${w24.sectorRange}）`;
+  if(cSup.length&&cRes.length){
+    html+=`<br><span class="pred-label res">阻力</span>十字线最近 ${cRes[0].price}（${cRes[0].angle}°，距 ${cRes[0].change>0?'+':''}${cRes[0].change}%）`;
+    if(cRes.length>1) html+=`→ 次阻力 ${cRes[1].price}`;
+    html+=`<br><span class="pred-label sup">支撑</span>十字线最近 ${cSup[0].price}（${cSup[0].angle}°，距 ${cSup[0].change}%）`;
+    if(cSup.length>1) html+=`→ 次支撑 ${cSup[1].price}`;
+    html+=`<br><span class="pred-label hint">研判</span>突破 ${cRes[0].price} 目标 ${cRes.length>1?cRes[1].price:'--'}；跌破 ${cSup[0].price} 则看 ${cSup.length>1?cSup[1].price:'--'}。`;
+  }
+  if(w24.timeForecast.length>=2){
+    html+=`<br><span class="pred-label time">时间</span>${w24.timeForecast[0].label}（${w24.timeForecast[0].date}）及 ${w24.timeForecast[1].label}（${w24.timeForecast[1].date}）若共振极可能转折。`;
+  }
+  w24PredictionEl.innerHTML=html;
+}
+
+function renderSquareOfNine(report){
+  const s9=report.squareOfNine;
+  if(!s9){if(squareOfNineMetaEl)squareOfNineMetaEl.textContent='数据不足';if(squareOfNineLevelsEl)squareOfNineLevelsEl.innerHTML='';if(s9PredictionEl)s9PredictionEl.innerHTML='';return;}
+  if(squareOfNineMetaEl)squareOfNineMetaEl.textContent=`基准 ${s9.basePrice} · √${s9.sqrtBase} · 角度 ${s9.currentAngle}°`;
+  drawS9Chart(s9);genS9Prediction(s9);
+  const pick=[45,90,120,180,270,360,720];
+  const items=[];
+  s9.resistances.filter((r)=>pick.includes(r.angle)).forEach((r)=>{items.push({name:`▲ ${r.label}`,value:`${r.price} (${r.change>0?'+':''}${r.change}%)`});});
+  s9.supports.filter((s)=>pick.includes(s.angle)).forEach((s)=>{items.push({name:`▼ ${s.label}`,value:`${s.price} (${s.change}%)`});});
+  if(squareOfNineLevelsEl)renderMetricList(squareOfNineLevelsEl,items,(i)=>i);
+}
+
+function renderWheelOf24(report){
+  const w24=report.wheelOf24;
+  if(!w24){if(wheelOf24MetaEl)wheelOf24MetaEl.textContent='数据不足';if(wheelOf24LevelsEl)wheelOf24LevelsEl.innerHTML='';if(wheelOf24TimeEl)wheelOf24TimeEl.innerHTML='';if(w24PredictionEl)w24PredictionEl.innerHTML='';return;}
+  if(wheelOf24MetaEl)wheelOf24MetaEl.textContent=`角度 ${w24.wheelAngle}° · 第${w24.sector}扇区 · ${w24.sectorRange}`;
+  drawW24Chart(w24);genW24Prediction(w24);
+  const levels=[...w24.cardinalLevels.map((l)=>({...l,cross:'十'})),...w24.ordinalLevels.map((l)=>({...l,cross:'×'}))].sort((a,b)=>a.price-b.price);
+  if(wheelOf24LevelsEl)renderMetricList(wheelOf24LevelsEl,levels,(l)=>({name:`${l.direction==='resistance'?'▲':'▼'} ${l.angle}° ${l.cross}`,value:`${l.price} (${l.change>0?'+':''}${l.change}%)`}));
+  if(wheelOf24TimeEl)renderMetricList(wheelOf24TimeEl,w24.timeForecast,(t)=>({name:t.label,value:t.date}));
 }
 
 function getCurrentQuery(){return{symbol:symbolInput.value.trim(),period:periodSelect.value,adjusted:adjustedSelect.value,limit:320};}
@@ -443,6 +662,7 @@ async function render(query){
   statusText.textContent='正在计算趋势、扇形、时间和水平位...';
   resetAiReportState('图表已更新。如需结合大模型生成报告，请点击“AI 分析报告”。');
   const {history,analysis}=await loadData(query);
+  analysisCache=analysis;
   const candles=history.candles.map((item)=>({time:item.timestamp,open:item.open,high:item.high,low:item.low,close:item.close}));
   const volumes=history.candles.map((item)=>({time:item.timestamp,value:item.volume,color:item.close>=item.open?'rgba(31, 209, 138, 0.5)':'rgba(255, 91, 110, 0.5)'}));
   latestContext={query,history,report:analysis.report,security:history.security,market:history.market};restoreDrawingsState([]);
@@ -451,7 +671,10 @@ async function render(query){
   securityMeta.textContent=`${history.security.code}.${history.market} · ${query.period==='daily'?'日线':query.period==='weekly'?'周线':'月线'}`;
   renderMetricList(priceLevelsEl,analysis.report.priceLevels.slice(0,8),(item)=>({name:item.label,value:item.value.toFixed(2)}));
   renderMetricList(timeCyclesEl,analysis.report.timeCycles,(item)=>({name:`${item.cycle}周期`,value:`${item.date} / ${item.close}`}));
-  renderSummary(analysis.report.summary);setForecast(analysis.report);renderGuide(history,analysis.report);syncOverlayButtons();syncToolButtons();updateDrawingHint();resizeDrawingLayer();updateFullscreenButton();document.dispatchEvent(new CustomEvent('gann:context-updated',{detail:{symbol:history.security.code,market:history.market,name:history.security.name,period:query.period,adjusted:query.adjusted}}));
+  renderSummary(analysis.report.summary);setForecast(analysis.report);renderGuide(history,analysis.report);
+  renderSquareOfNine(analysis.report);renderWheelOf24(analysis.report);
+  syncOverlayButtons();syncToolButtons();updateDrawingHint();resizeDrawingLayer();updateFullscreenButton();
+  document.dispatchEvent(new CustomEvent('gann:context-updated',{detail:{symbol:history.security.code,market:history.market,name:history.security.name,period:query.period,adjusted:query.adjusted}}));
 }
 
 async function generateAiReport(){
@@ -499,10 +722,38 @@ function attachEvents(){
   drawingLayer.addEventListener('pointerleave',handleDrawingLeave);
   [llmBaseUrlInput,llmModelInput,llmApiKeyInput,llmTemperatureInput,llmSystemPromptInput].forEach((input)=>{input.addEventListener('change',saveLlmConfig);input.addEventListener('blur',saveLlmConfig);});
   [openAiModalBtn,quickAiBtn].forEach((button)=>button.addEventListener('click',openAiModal));
+  if(openGannModalBtn)openGannModalBtn.addEventListener('click',()=>{
+    if(!analysisCache) return alert('分析尚未加载完成');
+    gannModal.classList.add('is-open');
+    gannModal.setAttribute('aria-hidden','false');
+    document.body.classList.add('modal-open');
+    renderSquareOfNine(analysisCache.report);
+    renderWheelOf24(analysisCache.report);
+  });
+  if(closeGannModalBtn)closeGannModalBtn.addEventListener('click',()=>{
+    gannModal.classList.remove('is-open');
+    gannModal.setAttribute('aria-hidden','true');
+    document.body.classList.remove('modal-open');
+  });
+  gannModal.addEventListener('click',(event)=>{if(event.target.dataset.closeModal==='true'){
+    gannModal.classList.remove('is-open');
+    gannModal.setAttribute('aria-hidden','true');
+    document.body.classList.remove('modal-open');
+  }});
+
   toggleFullscreenBtn.addEventListener('click',()=>{toggleChartFullscreen().catch((error)=>{statusText.textContent=`全屏切换失败：${error.message}`;});});
   closeAiModalBtn.addEventListener('click',closeAiModal);
   aiModal.addEventListener('click',(event)=>{if(event.target.dataset.closeModal==='true') closeAiModal();});
-  document.addEventListener('keydown',(event)=>{if(event.key==='Escape'&&aiModal.classList.contains('is-open')) closeAiModal();});
+  document.addEventListener('keydown',(event)=>{
+    if(event.key==='Escape'){
+      if(aiModal.classList.contains('is-open')) closeAiModal();
+      if(gannModal.getAttribute('aria-hidden')==='false'){
+        gannModal.classList.remove('is-open');
+        gannModal.setAttribute('aria-hidden','true');
+        document.body.classList.remove('modal-open');
+      }
+    }
+  });
   generateAiReportBtn.addEventListener('click',()=>{generateAiReport().catch((error)=>{aiReportContentEl.textContent=error.message;setAiReportMeta('生成失败');});});
   exportAiPdfBtn.addEventListener('click',()=>{exportAiReportPdf().catch((error)=>{statusText.textContent=`PDF 导出失败：${error.message}`;});});
   controlForm.addEventListener('submit',async(event)=>{

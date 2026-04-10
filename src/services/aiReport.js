@@ -1,4 +1,4 @@
-﻿const DEFAULT_SYSTEM_PROMPT = [
+const DEFAULT_SYSTEM_PROMPT = [
   '你是资深A股研究员。',
   '你只能基于提供的行情数据和江恩理论分析结果输出结论，不要编造未提供的基本面、政策或新闻。',
   '报告必须使用中文，结构清晰，观点克制，必须包含风险提示，且明确说明不构成投资建议。'
@@ -49,6 +49,8 @@ function buildPromptPayload(bundle) {
       fanLines: bundle.report.fanLines,
       priceLevels: bundle.report.priceLevels,
       timeCycles: bundle.report.timeCycles,
+      squareOfNine: bundle.report.squareOfNine,
+      wheelOf24: bundle.report.wheelOf24,
       summary: bundle.report.summary
     },
     recentCandles
@@ -63,7 +65,7 @@ function buildUserPrompt(bundle) {
     '要求：',
     '1. 只基于提供的数据分析。',
     '2. 必须包含：趋势判断、关键支撑压力、时间窗口、可能情景推演、风险提示。',
-    '3. 对江恩扇形线、价格分割位、时间周期要明确解释其含义。',
+    '3. 对江恩扇形线、价格分割位、时间周期、九方格支撑阻力、轮中轮关键共振价位要明确解释其含义。',
     '4. 输出格式使用 Markdown。',
     '5. 结论要区分短线和波段，不要写成绝对判断。',
     '',

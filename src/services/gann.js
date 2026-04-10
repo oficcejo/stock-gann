@@ -1,4 +1,7 @@
-﻿const DEFAULT_CYCLES = [7, 9, 21, 30, 45, 60, 90, 120, 144, 180];
+const { buildSquareOfNine } = require('./squareOfNine');
+const { buildWheelOf24 } = require('./wheelOf24');
+
+const DEFAULT_CYCLES = [7, 9, 21, 30, 45, 60, 90, 120, 144, 180];
 
 function round(value, digits = 2) {
   return Number(Number(value).toFixed(digits));
@@ -177,6 +180,18 @@ function buildGannReport(history) {
   const forecast = buildForecast(candles, pivotLow, pivotHigh, priceLevels, trendBias);
   const summary = summarizeSignals(candles, pivotLow, pivotHigh, forecast, priceLevels, timeCycles);
 
+  const lastCandle = candles[candles.length - 1];
+  const squareOfNine = buildSquareOfNine(lastCandle.close);
+  const wheelOf24 = buildWheelOf24(lastCandle.close, lastCandle.date);
+
+  if (squareOfNine && squareOfNine.nearest.resistance && squareOfNine.nearest.support) {
+    summary.push(`九方格显示最近上方阻力位 ${squareOfNine.nearest.resistance.price}（${squareOfNine.nearest.resistance.label}），下方支撑位 ${squareOfNine.nearest.support.price}（${squareOfNine.nearest.support.label}），当前角度 ${squareOfNine.currentAngle}°。`);
+  }
+
+  if (wheelOf24) {
+    summary.push(`轮中轮显示价格位于轮盘 ${wheelOf24.wheelAngle}°（第${wheelOf24.sector}扇区），十字线和×线交叉标注了关键共振价位。`);
+  }
+
   return {
     pivots: {
       low: {
@@ -194,7 +209,9 @@ function buildGannReport(history) {
     priceLevels,
     timeCycles,
     forecast,
-    summary
+    summary,
+    squareOfNine,
+    wheelOf24
   };
 }
 
